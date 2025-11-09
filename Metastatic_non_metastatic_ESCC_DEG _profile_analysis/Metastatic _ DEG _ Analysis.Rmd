@@ -139,33 +139,6 @@ dds <- DESeq(dds)
 
 ```
 
-```{r, include = FALSE, eval = !knitr::is_latex_output()}
-
-res <- results(dds)
-
-res_lfc1 <- results(dds, lfcThreshold = 1)
-class(res_lfc1)
-summary(res)
-summary(res_lfc1)
-
-head(res_lfc1)
-# head(count_matrix)
-
-# Filter out genes with significant l2fc (padj < 0.05)
-padj_0.05 <- res_lfc1$padj < 0.05
-res_lfc1_padj <- res_lfc1[padj_0.05, ]
-res_lfc1_padj
-#
-dim(res_lfc1_padj)
-dim(res_lfc1)
-#
-summary(res_lfc1_padj)
-
-order(res_lfc1_padj$padj, decreasing = T)
-res_lfc1_padj_ord <- res_lfc1_padj[order(res_lfc1_padj$padj, decreasing = F), ]
-head(res_lfc1_padj_ord)
-
-```
 
 ```{r}
 
@@ -278,4 +251,5 @@ write.table(degs, sep = "\t", file = "rna_seq_degs.tsv",
             row.names = F, col.names = T)
 
 ```
+
 
