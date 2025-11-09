@@ -1,0 +1,281 @@
+---
+title: "RNA Seq DEG Analysis"
+author: "Savindu Weerathunga"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+```{r setup, include = FALSE}
+
+setwd("E:/Uni/my_res/ESCC")
+
+knitr::opts_chunk$set(
+  echo = T,
+  warning = F,
+  message = F
+)
+
+
+```
+
+```{r}
+
+library(tidyverse)
+library(DESeq2)
+library(dplyr)
+
+```
+
+### Create count matrix
+
+```{r}
+# List all rsem count files
+files <- list.files(path = "results/counts/rsem/", pattern = "*.genes.results",
+                    full.names = T)
+head(files)
+
+# Extract sample names from filenames
+sample_names <- gsub("\\.genes\\.results", "", basename(files))
+head(sample_names)
+
+# Extract gene_id and expected count
+count_list <- lapply(files, function(f){
+  df <- read.delim(f, stringsAsFactors = F)
+  df[, c("gene_id", "expected_count")]
+})
+
+#count_list
+
+#str(count_list)
+
+count_matrix <- Reduce(function(x, y) merge(x, y, by = "gene_id"), count_list)
+head(count_matrix)
+
+colnames(count_matrix) <- c("gene_id", sample_names)
+
+head(count_matrix)
+```
+
+
+```{r}
+
+# Add metadata with the conditions of each sample
+metadata <- data.frame(
+  row.names = sample_names,
+  condition = c("normal", "normal", "normal", "normal", "normal", "normal", "normal", "normal",
+                "met_canc", "met_canc", "met_canc", "met_canc", "met_canc", "met_canc", "met_canc",
+                "met_canc")
+)
+
+
+metadata
+
+```
+
+### Create DESeq object
+
+
+```{r}
+
+dds <- DESeqDataSetFromMatrix(
+  countData = round(as.matrix(count_matrix[, -1])),
+  colData = metadata,
+  design = ~ condition
+)
+
+head(dds)
+dim(dds)
+colnames(dds)
+
+```
+
+
+```{r}
+# Test whether there are incorrect metadata sample assignments during submissions to NCBI SRA
+
+# Estimate size factors
+dds <- estimateSizeFactors(dds)
+sizeFactors(dds)
+
+# counts(dds)
+log.norm <- normTransform(dds)
+log.norm
+
+log.norm.counts <- log2(counts(dds, normalized = T) + 1)
+head(log.norm.counts)
+
+# Carryout plot PCA and hclust to verify that the samples group into their assigned conditions
+plotPCA(log.norm, intgroup = "condition")
+
+plot(hclust(dist(t(log.norm.counts))), labels = colData(dds)$condition)
+
+
+```
+
+
+```{r}
+
+# Add gene_ids to the rownames of dds
+
+# count_matrix$gene_id
+rownames(dds) <- count_matrix$gene_id
+
+# rownames(dds)
+
+
+# Rearrange the levels such that the comparison is done against the non-cancerous 
+# subjects
+levels(dds$condition)
+dds$condition <- relevel(dds$condition, "normal")
+levels(dds$condition)
+
+# Filter out genes that have very low counts in at least 2 samples which don't contribute any significant information to the analysis
+filtered <- rowSums(counts(dds) >= 10) > 2
+dds <- dds[filtered, ]
+
+# dds
+
+# Run DESeq 
+dds <- DESeq(dds)
+
+```
+
+```{r, include = FALSE, eval = !knitr::is_latex_output()}
+
+res <- results(dds)
+
+res_lfc1 <- results(dds, lfcThreshold = 1)
+class(res_lfc1)
+summary(res)
+summary(res_lfc1)
+
+head(res_lfc1)
+# head(count_matrix)
+
+# Filter out genes with significant l2fc (padj < 0.05)
+padj_0.05 <- res_lfc1$padj < 0.05
+res_lfc1_padj <- res_lfc1[padj_0.05, ]
+res_lfc1_padj
+#
+dim(res_lfc1_padj)
+dim(res_lfc1)
+#
+summary(res_lfc1_padj)
+
+order(res_lfc1_padj$padj, decreasing = T)
+res_lfc1_padj_ord <- res_lfc1_padj[order(res_lfc1_padj$padj, decreasing = F), ]
+head(res_lfc1_padj_ord)
+
+```
+
+```{r}
+
+# Create a dataframe with the gene symbol, p values, adjusted p values and logFC of each DEG
+res_lfc <- results(dds, lfcThreshold = 1)
+summary(res_lfc)
+
+str(res_lfc)
+
+res_lfc_padj_0.05 <- res_lfc[res_lfc$padj < 0.05, ]
+str(res_lfc_padj_0.05)
+deg_list <- rownames(res_lfc_padj_0.05)
+
+degs <- data.frame(
+  gene_id = rownames(res_lfc_padj_0.05),
+  P.Value = res_lfc_padj_0.05$pvalue,
+  adj.P.Val = res_lfc_padj_0.05$padj,
+  logFC = res_lfc_padj_0.05$log2FoldChange
+)
+
+degs
+```
+
+```{r}
+
+# Get the entrez ids for the genes in degs df
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+
+```
+
+```{r}
+annot <- select(
+  org.Hs.eg.db,
+  keys = degs$gene_id,
+  columns = "ENTREZID",
+  keytype = "SYMBOL"
+)
+
+annot
+
+# Check whether there are more than one entrez id mapped to a gene
+annot$n <- sapply(strsplit(as.character(annot$ENTREZID), ","), length)
+idx <- which(annot$n > 2)
+annot[idx, ] # Output: 0 rows
+```
+
+```{r}
+
+# Merge annot$ENTREZID with degs
+
+degs <- degs %>%
+  left_join(
+    annot %>% dplyr::select(SYMBOL, ENTREZID),
+    by = c("gene_id" = "SYMBOL")
+  )
+
+degs
+  
+
+```
+
+### Let's take a look at some of the biological processes, molecular functions and cellular components that are enriched in this DEG profile.
+
+```{r}
+
+# GO enrichment
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+```
+
+```{r, fig.height = 10, fig.width = 10}
+
+# For BP (Biological Process)
+rs_ego <- enrichGO(rownames(res_lfc_padj_0.05), OrgDb = "org.Hs.eg.db", keyType = "SYMBOL",
+                   ont ="BP", pAdjustMethod = "BH", pvalueCutoff = 0.05)
+head(rs_ego)
+
+barplot(rs_ego, showCategory = 20)
+dotplot(rs_ego, showCategory = 20)
+
+```
+
+```{r, fig.height = 10, fig.width = 10}
+
+# For MF (molecular function)
+
+mf_ego <- enrichGO(rownames(res_lfc_padj_0.05), OrgDb = "org.Hs.eg.db", keyType = "SYMBOL",
+                   ont = "MF", pAdjustMethod = "BH", pvalueCutoff = 0.05)
+
+barplot(mf_ego, showCategory = 20)
+dotplot(mf_ego, showCategory = 20)
+
+# For CC (cellular component)
+cc_ego <- enrichGO(rownames(res_lfc_padj_0.05), OrgDb = "org.Hs.eg.db", keyType = "SYMBOL",
+                   ont = "CC", pAdjustMethod = "BH", pvalueCutoff = 0.05)
+
+barplot(cc_ego, showCategory = 20)
+dotplot(cc_ego, showCategory = 20)
+
+
+```
+
+```{r}
+deg_list
+length(deg_list)
+
+write.table(degs, sep = "\t", file = "rna_seq_degs.tsv",
+            row.names = F, col.names = T)
+
+```
+
