@@ -1,0 +1,433 @@
+---
+title: "DE _ Analysis _ Microarray"
+author: "S.L"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include = FALSE}
+
+setwd("E:/Uni/my_res/ESCC")
+
+knitr::opts_chunk$set(
+  echo = T,
+  warning = F,
+  message = F
+)
+
+```
+
+## Differential expression analysis of microarray data
+
+```{r}
+
+# BiocManager::install(c("GEOquery", "limma", "affy", "oligo"))
+
+library(GEOquery)
+library(limma)
+library(affy)
+library(oligo)
+
+```
+
+## Download dataset from GEO
+
+```{r}
+
+# Get Dataset from NCBI GEO
+gset <- getGEO("GSE17351", GSEMatrix = T)
+
+length(gset)
+class(gset)
+
+```
+
+# Inspecting expression data and metadata
+
+```{r}
+
+exprsSet <- gset[[1]]
+
+# exprs(exprsSet)
+pData(exprsSet)
+head(fData(exprsSet))
+
+```
+
+```{r}
+
+# Get more information on platform to check for the probe ids and the genes they map to
+gpl_s <- getGEO("GPL570")
+gpl_s
+
+gpl <- gpl_s@dataTable@table
+gpl
+
+
+fdata <- fData(exprsSet)
+
+```
+
+```{r}
+
+# Check if the data in the series matrix is normalized
+pData(exprsSet)[1, "data_processing"]
+
+```
+
+# Define experimental groups and model ftting
+
+```{r}
+
+library(stringr)
+
+group <- factor(pData(exprsSet)$`characteristics_ch1`)
+group
+levels(group)
+
+design <- model.matrix(~0 + group)
+
+# Keep only the status (normal, tumor) in the levels for simplification
+levels(group) <- gsub(" |esophagus|tissue|:|,| ", "", levels(group))
+
+group
+levels(group)
+
+colnames(design) <- levels(group)
+design
+
+```
+
+```{r}
+# Check if the condition assignments in sample metadata are correct
+
+plot(hclust(dist(t(exprs(exprsSet)))), labels = group)
+
+
+```
+
+
+```{r}
+
+# Run limma to identify differential expression b/w tumor and normal samples
+fit <- lmFit(exprsSet, design)
+contrast.matrix <- makeContrasts(tumor_vs_normal = `tumor` - `normal`, levels = design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+
+
+fit2
+
+```
+
+```{r}
+
+res <- topTable(fit2, coef = "tumor_vs_normal", adjust = "fdr", number = Inf)
+head(res)
+
+# results <- topTable(fit2, adjust.method="BH", number=Inf)
+# head(results)
+```
+```{r}
+
+# Subset significant DEGs
+deg <- subset(res, adj.P.Val < 0.05 & abs(logFC) > 1)
+head(deg)
+
+#View(deg)
+
+```
+
+# Visualization
+
+```{r}
+
+plot(res$logFC, -log10(res$P.Value),
+     pch = 20, 
+     main = "Volcano Plot",
+     xlab = "log2 Fold Change",
+     ylab = "-log10 P-value")
+
+abline(h = -log10(0.05), col = "red", lty=2)
+abline(v=c(-1,1), col = "blue", lty=2)
+
+
+```
+
+```{r, fig.height=10, fig.width = 10}
+
+library(pheatmap)
+topGenes <- rownames(deg)[1:50]
+head(topGenes)
+
+exprs(exprsSet)[topGenes, ]
+
+annotation_col <- data.frame(
+  status = group
+)
+
+rownames(annotation_col) <- colnames(exprs(exprsSet))
+
+annotation_col
+
+pheatmap(exprs(exprsSet)[topGenes, ], scale = "row", annotation_col = annotation_col)
+
+length(topGenes)
+sum(topGenes %in% rownames(exprs(exprsSet)))
+
+```
+
+# Functional analysis
+
+```{r}
+
+library(clusterProfiler)
+# BiocManager::install("hgu133plus2.db")
+library(hgu133plus2.db)
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+
+
+# columns(hgu133plus2.db)
+
+# Identify entrez ids for each DEG using AnnotationDbi
+gene_list <- rownames(deg)
+# gene_list
+
+annot <- select(hgu133plus2.db,
+                keys = gene_list,
+                columns = c("SYMBOL", "GENENAME", "ENTREZID"),
+                keytype = "PROBEID")
+View(annot)
+
+# Check if the entrez_ids of both deg and annot dataframes are equal
+all(annot$PROBEID == deg$ID)
+all(annot$ENTREZID == deg$ENTREZ_GENE_ID)
+
+# Output: False False
+
+length(annot$PROBEID)
+length(deg$ID)
+
+# Output:
+# [1] 776
+# [1] 761
+# Based on this we can see that several probes have multiple mappings
+length(unique(annot$PROBEID))
+
+# Output: [1] 761
+
+# Checking for duplicates in the gene_list
+which(duplicated(gene_list)) # Output: integer(0); there are no duplicates in the gene list
+
+# Checking for multiple mappings for a single gene in annot dataframe
+# Resolving to unique probe-to-gene mappings
+
+invisible(duplicated(annot$PROBEID))
+annot_unique <- annot[!duplicated(annot$PROBEID), ]
+head(annot_unique)
+
+```
+
+```{r}
+
+# Identify probe ids with multiple mappings
+idx <- which(table(annot$PROBEID) > 1)
+mul <- names(idx)
+mul
+
+dup_ids <- annot[annot$PROBEID %in% mul, ]
+dup_ids
+
+# Check the symbols, genes, and entrez_ids assigned to duplicated probed ids during unique()
+annot_unique[annot_unique$PROBEID %in% mul,]
+
+
+```
+
+```{r}
+
+# Some of the genes assigned to these duplicated probe ids are putative/ pseudogenes
+# Therefore, the entries in the annot_unique corresponding to the probe id were resolved manually with suitable gene information by,
+# - Manually carrying out blast (blastn; db = human genomic + trascript) with the GB_ACC of each duplicated probe thereby identifying the most significant hit that is not predicted/ a pseudogene and that is included in the annot dataframe generated from the hgu133plus2.db
+
+# Find gb accessions
+deg[deg$ID %in% unique(dup_ids$PROBEID), ]
+
+# EIF4EBP3 was assigned to 214919_s_at probe id since the significance of the ANKHD1-EIF4EBP3 readthrough mRNA (the assignment from unique() previously) and the function of its protein product have not yet been determined.
+# 209360_s_at - RUNX1
+# 1554741_s_at - FGF7
+# 206173_x_at - GABPB1
+# 1556579_s_at - MED12L
+# 210387_at - H2BC8
+
+```
+
+```{r}
+
+annot_unique[annot_unique$PROBEID %in% dup_ids$PROBEID, ]
+
+# Assign gene info (based on previous investigations) to the probe ids in annot_unique to which different gene info was assigned 
+annot_unique[annot_unique$PROBEID == "1569607_s_at",] <- dup_ids[dup_ids$SYMBOL == "ANKRD20A1", ]
+annot_unique[annot_unique$PROBEID == "1569608_x_at", ] <- dup_ids[dup_ids$SYMBOL == "LOC102723382", ]
+annot_unique[annot_unique$PROBEID == "1554741_s_at", ] <- dup_ids[dup_ids$SYMBOL == "FGF7", ]
+annot_unique[annot_unique$PROBEID == "210387_at", ] <- dup_ids[dup_ids$SYMBOL == "H2BC8", ]
+
+```
+
+
+```{r}
+# Check for probe_ids without gene info
+annot_unique[is.na(annot_unique$SYMBOL), ]
+             
+# Remove probe ids without gene information
+gene_na <- annot_unique[is.na(annot_unique$SYMBOL), ]
+
+
+```
+
+
+```{r}
+
+# Check for any gene annotations of the probe ids that had no gene info
+# Result: Non found 
+annot_unique[annot_unique$PROBEID %in% gene_na$PROBEID, ]
+
+
+```
+
+```{r}
+# Get gene info of the probes for which gene info was not retrieved with select() previously
+
+# Get 
+gene_na
+deg_na <- deg[deg$ID %in% gene_na$PROBEID, ]
+deg_na
+
+gene_na_acc <- deg[deg$ID %in% gene_na$PROBEID, "GB_ACC"]
+gene_na_acc
+
+# Manually identify the new gene mappings for the probes in deg_na
+deg_na
+write.csv(data.frame(ID = deg_na$GB_ACC), file = "deg_na.csv")
+
+# Using the gene accessions of the probes in the above saved csv file, identify entrez ids with NCBIWWW and Entrez esearch in biopython python script given in a seperate python script file. 
+# These entrez ids are saved in the deg_na_gene_ids_with_entrez.csv
+
+# Merge gene info identified manually using ncbi with annot_unique
+deg_na_with_entrez <- read.table("deg_na_gene_ids_with_entrez.csv", sep = ",",
+                                 header = T, stringsAsFactors = F, row.names = 1)
+deg_na_with_entrez
+
+# Add probe ids to deg_na_gene_ids_with_entrez.csv
+all(deg_na_with_entrez$acc == deg_na$GB_ACC)
+
+deg_na_with_entrez$probe_id <- deg_na$ID
+deg_na_with_entrez
+
+
+for (i in 1:nrow(deg)){
+  public_id <- annot_unique$PROBEID[i]
+  
+  if (any(deg_na_with_entrez$probe_id == public_id)){
+    print(public_id)
+    annot_unique$SYMBOL[i] <- deg_na_with_entrez[deg_na_with_entrez$probe_id == public_id, "gene_id"]
+    annot_unique$ENTREZID[i] <- deg_na_with_entrez[deg_na_with_entrez$probe_id == public_id, "entrez_id"]
+    
+    print(annot_unique[i, ])
+    
+  } else next
+  
+  
+  
+}
+
+# Check for NAs in annot_unique even after manual annotation and remove them
+annot_unique[annot_unique$PROBEID %in% gene_na$PROBEID, ]
+annot_unique <- annot_unique[!is.na(annot_unique$ENTREZID), ]
+annot_unique[is.na(annot_unique$ENTREZID), ]
+
+```
+
+
+```{r}
+
+# Add the logFC, AveExpr, t, P.Value, adj.P.Val, and B to the annot_unique dataframe from deg dataframe
+for (i in 1:nrow(annot_unique)){
+  probe_id <- annot_unique$PROBEID[i]
+  
+  annot_unique$logFC[i] <- deg[deg$ID == probe_id, "logFC"]
+  annot_unique$AveExpr[i] <- deg[deg$ID ==probe_id, "AveExpr"]
+  annot_unique$t[i] <- deg[deg$ID == probe_id, "t"]
+  annot_unique$P.Value[i] <- deg[deg$ID == probe_id, "P.Value"]
+  annot_unique$adj.P.Val[i] <- deg[deg$ID == probe_id, "adj.P.Val"]
+  annot_unique$B[i] <- deg[deg$ID == probe_id, "B"]
+
+}
+
+head(annot_unique)
+
+# # Alternative methods to do the above
+# annot_unique <- merge(
+#   annot_unique, 
+#   deg[, c("ID", "logFC", "AveExpr", "t", "P.Value", "adj.P.Val", "B")],
+#   by.x = "PROBEID", 
+#   by.y = "ID", 
+#   all.x = TRUE
+# )
+# 
+# # OR
+# 
+# library(dplyr)
+# 
+# annot_unique <- annot_unique %>%
+#   left_join(
+#     deg %>% select(ID, logFC, AveExpr, t, P.Value, adj.P.Val, B),
+#     by = c("PROBEID" = "ID")
+#   )
+
+
+
+
+```
+
+
+```{r}
+
+# Check whether the logFC were correctly added to the right entry
+library(glue)
+
+for (i in 1:nrow(annot_unique)){
+  
+  probe_id <- annot_unique$PROBEID[i]
+  
+  idx <- which(deg$ID == probe_id)
+
+  if(annot_unique$logFC[i] == deg$logFC[idx]){
+      next
+      # print(glue("{probe_id}: T"))
+    } else{
+      print(glue("{probe_id}: F"))
+    }
+}
+
+  
+
+
+```
+
+```{r, fig.height = 10, fig.width = 10}
+
+# Save DEGs from microarray analysis as a tsv file
+
+
+write.table(annot_unique, sep = "\t", file = "micro_degs.tsv",
+            row.names = F, col.names = T)
+
+write.csv(deg_na, sep = ",", file = "deg_na.csv")
+
+```
+
+
+
