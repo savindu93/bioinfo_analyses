@@ -1,4 +1,7 @@
-# Analysis of DEG profiles of Metastatic and Non-metastatic esophageal squamous cell carcinoma samples 
+# Analysis of DEG profiles of Metastatic and Non-metastatic esophageal squamous cell carcinoma (ESCC) samples 
+
+#### ❓ Research question: What genes are primarily involved in the progression of ESCC to metastasis? 
+#### 📖 Method: Differential gene expression (DGE) profiles of metastatic and non-metastatic ESCC patients of Japanese descent were determined. Utilizing the 2 DGE profiles, driver genes involved in metastasis of ESCC in Japanese ESCC patients will be identified using a rank-based and hypergeometric overlap statistical framework.
 
 #### The following repo provides the corresponding codebases used for the comparison of differential expressed gene profiles from metastatic and non-metastatic ESCC samples.
 
