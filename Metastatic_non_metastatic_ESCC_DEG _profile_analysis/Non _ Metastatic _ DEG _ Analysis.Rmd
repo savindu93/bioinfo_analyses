@@ -312,7 +312,7 @@ gene_na_acc
 deg_na
 write.csv(data.frame(ID = deg_na$GB_ACC), file = "deg_na.csv")
 
-# Using the gene accessions of the probes in the above saved csv file, identify entrez ids with NCBIWWW and Entrez esearch in biopython python script given in a seperate python script file. 
+# Using the gene accessions of the probes in the above saved csv file, identify entrez ids with NCBIWWW and Entrez esearch in biopython python script given in a seperate python script file. (Python script)[https://github.com/savindu93/bioinfo_analyses/blob/main/Metastatic_non_metastatic_ESCC_DEG%20_profile_analysis/mapping_gene_id_to_entrez_id.py]
 # These entrez ids are saved in the deg_na_gene_ids_with_entrez.csv
 
 # Merge gene info identified manually using ncbi with annot_unique
@@ -428,6 +428,7 @@ write.table(annot_unique, sep = "\t", file = "micro_degs.tsv",
 write.csv(deg_na, sep = ",", file = "deg_na.csv")
 
 ```
+
 
 
 
