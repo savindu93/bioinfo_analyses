@@ -1,3 +1,15 @@
+"""
+Input - Genbank accessions of microarray probe IDs
+
+This python script carries out the following,
+- Use genbank accessions of probe IDs of microarray chips to search for their corresponding gene (gene ID) using NCBIWWW of Biopython package
+- The gene IDs are then mapped to their corresponding entrez IDs with entrez esearch
+
+Output - Dataframe of gene IDs with their Entrez IDs
+"""
+
+
+
 import pandas as pd
 from Bio.Blast import NCBIWWW, NCBIXML
 import re
@@ -93,3 +105,4 @@ for index, row in df.iterrows():
 
 
 df.to_csv("deg_na_gene_ids_with_entrez.csv", index=False)
+
