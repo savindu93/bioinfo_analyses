@@ -391,6 +391,41 @@ head(annot_unique)
 
 
 ```
+```{r}
+
+head(annot_unique)
+
+# Check for entries that have different probe_ids but mapped to the same entrez id
+
+length(annot_unique$ENTREZID)
+length(unique(annot_unique$ENTREZID))
+
+idx <- which(duplicated(annot_unique$ENTREZID))
+annot_unique_dup_entrez <- annot_unique[idx, ]$ENTREZID
+
+annot_unique_dup <- annot_unique[annot_unique$ENTREZID %in% annot_unique_dup_entrez, ]
+
+# Convert the entrez ids to numeric to order them in the ascending order
+annot_unique_dup$ENTREZID <- as.numeric(annot_unique_dup$ENTREZID)
+
+annot_unique_dup_sorted <- annot_unique_dup[order(annot_unique_dup$ENTREZID), ]
+annot_unique_dup_sorted
+
+
+
+```
+
+```{r}
+
+# Get the original entries, including GB Acc, of the above probe IDs from deg dataframe and save them in a separate .tsv file in order to check whether the duplicated entries are related to different transcripts of the same gene (Done with a separate python script)
+head(deg)
+
+probe_ids_w_dup_entrez_ids <- deg[match(annot_unique_dup_sorted$PROBEID, deg$ID), ]
+
+write.table(probe_ids_w_dup_entrez_ids, sep = "\t", file = "dup_entrez.tsv",
+            row.names = F, col.names = T)
+
+```
 
 
 ```{r}
@@ -428,6 +463,7 @@ write.table(annot_unique, sep = "\t", file = "micro_degs.tsv",
 write.csv(deg_na, sep = ",", file = "deg_na.csv")
 
 ```
+
 
 
 
